@@ -22,30 +22,28 @@
 #
 # Author:      Özkan Afacan,
 #              Angelo J. Miner, Mikołaj Milej, Daniel White,
-#              Oscar Martin Garcia, David Marcelis, Duo Oratar
+#              Oscar Martin Garcia, David Marcelis, Duo Oratar, Zach Wang
 #
 # Created:     23/02/2012
 # Copyright:   (c) Angelo J. Miner 2012
 # Copyright:   (c) Özkan Afacan 2016
+# Copyright:   (c) Zach Wang 2021-2025
 # License:     GPLv2+
 # ------------------------------------------------------------------------------
 
 
 bl_info = {
     "name": "BCRY Exporter",
-    "author": "Özkan Afacan; Angelo J. Miner; Mikołaj Milej; Daniel White; Oscar Martin Garcia; Duo Oratar; David Marcelis; Leonid Bilousov; Wang, Zhen",
-    "blender": (2, 93, 2),
-    "version": (5, 6, 7),
+    "author": "Özkan Afacan; Angelo J. Miner; Mikołaj Milej; Daniel White; Oscar Martin Garcia; Duo Oratar; David Marcelis; Leonid Bilousov; Zach Wang",
+    "blender": (4, 5, 3),
+    "version": (1, 1, 0),
     "location": "BCRY Exporter Menu",
     "description": "Export assets from Blender to CryEngine V",
     "warning": "",
     "wiki_url": "http://bcry.afcstudio.org/documents/",
-    "tracker_url": "https://github.com/AFCStudio/BCryExporter/issues",
+    "tracker_url": "https://github.com/brickengineer/BCRYExporter/issues",
     "support": 'OFFICIAL',
     "category": "Import-Export"}
-
-# old wiki url: http://wiki.blender.org/
-# index.php/Extensions:2.5/Py/Scripts/Import-Export/CryEngine3
 
 VERSION = '.'.join(str(n) for n in bl_info["version"])
 
@@ -210,6 +208,7 @@ class BCRY_OT_add_cry_export_node(bpy.types.Operator):
     node_name: StringProperty(name="Name")
 
     def __init__(self):
+        super().__init__()
 
         object_ = bpy.context.active_object
         self.node_name = object_.name
@@ -341,6 +340,7 @@ class BCRY_OT_add_cry_animation_node(bpy.types.Operator):
             col.prop(self, "end_m_name_auto")
 
     def __init__(self):
+        super().__init__()
         # bpy.ops.object.mode_set(mode='OBJECT')
         if bpy.context.active_object.type == 'ARMATURE':
             self.node_type = 'i_caf'
@@ -639,6 +639,7 @@ class BCRY_OT_generate_lods(bpy.types.Operator):
         col.separator()
 
     def __init__(self):
+        super().__init__()
         object_ = bpy.context.active_object
         if not object_ or object_.type != 'MESH':
             self.report({'ERROR'}, "Please select a mesh object!")
@@ -1175,6 +1176,7 @@ class BCRY_OT_add_material_properties(bpy.types.Operator):
     errorReport = None
 
     def __init__(self):
+        super().__init__()
         cryNodeReport = "Please select a object that in a Cry Export node" \
             + " for 'Do Material Convention'. If you have not created" \
             + " it yet, please create it with 'Add ExportNode' tool."
@@ -1506,6 +1508,7 @@ class BCRY_OT_edit_inverse_kinematics(bpy.types.Operator):
     bone = None
 
     def __init__(self):
+        super().__init__()
         armature = bpy.context.active_object
         if armature is None or armature.type != "ARMATURE":
             return None
@@ -1628,6 +1631,7 @@ class BCRY_OT_edit_physic_proxy(bpy.types.Operator):
     object_ = None
 
     def __init__(self):
+        super().__init__()
         self.object_ = bpy.context.active_object
 
         if self.object_ is None:
@@ -1720,6 +1724,7 @@ class BCRY_OT_edit_render_mesh(bpy.types.Operator):
     object_ = None
 
     def __init__(self):
+        super().__init__()
         self.object_ = bpy.context.active_object
 
         if self.object_ is None:
@@ -1826,6 +1831,7 @@ class BCRY_OT_edit_joint_node(bpy.types.Operator):
     object_ = None
 
     def __init__(self):
+        super().__init__()
         self.object_ = bpy.context.active_object
 
         if self.object_ is None:
@@ -1932,6 +1938,7 @@ class BCRY_OT_edit_deformable(bpy.types.Operator):
     object_ = None
 
     def __init__(self):
+        super().__init__()
         self.object_ = bpy.context.active_object
 
         if self.object_ is None:
@@ -2246,6 +2253,7 @@ class BCRY_OT_find_weightless(bpy.types.Operator):
     #         col.separator()
 
     # def __init__(self):
+        # super().__init__()
 
     def invoke(self, context, event):
         if context.object is None or context.object.type != "MESH":
@@ -2362,6 +2370,7 @@ class BCRY_OT_add_root_bone(bpy.types.Operator):
         return self.execute(context)
 
     def __init__(self):
+        super().__init__()
         bones = [bone for bone in bpy.context.active_object.pose.bones]
         search_words = ["hips", "pelvis"]
 
@@ -2465,14 +2474,9 @@ class BCRY_OT_add_locator_locomotion(bpy.types.Operator):
         default="y"
     )
 
-    bone_length: FloatProperty(name="Bone Length", default=0.15,
-                               description=desc.list['locator_length'])
-
-    root_bone: StringProperty(name="Root Bone", default="Root",
-                              description=desc.list['locator_root'])
-
-    movement_bone: StringProperty(name="Movement Bone", default="hips",
-                                  description=desc.list['locator_move'])
+    bone_length: FloatProperty(name="Bone Length", default=0.5, description=desc.list['locator_length'])
+    root_bone: StringProperty(name="Root Bone", default="Root", description=desc.list['locator_root'])
+    movement_bone: StringProperty(name="Movement Bone", default="Bip01__Pelvis", description=desc.list['locator_move'])
 
     x_axis: BoolProperty(
         name="X Axis",
@@ -2511,6 +2515,7 @@ class BCRY_OT_add_locator_locomotion(bpy.types.Operator):
         return self.execute(context)
 
     def __init__(self):
+        super().__init__()
         armature = bpy.context.active_object
         if not armature or armature.type != 'ARMATURE':
             self.report({'ERROR'}, "Please select a armature object!")
@@ -2539,6 +2544,8 @@ class BCRY_OT_add_locator_locomotion(bpy.types.Operator):
         locator_bone.select = True
         locator_bone.select_head = True
         locator_bone.select_tail = True
+        
+        # Assign bone to collection
         rootCollectionIndex = -1
         rootCollectionName = 'bcry_root'
         for index in range(0, len(locator_bone.collections)):
@@ -2551,7 +2558,6 @@ class BCRY_OT_add_locator_locomotion(bpy.types.Operator):
         else:
             bpy.ops.armature.assign_to_collection(rootCollectionIndex)
         armature.data.collections_all[rootCollectionName].is_visible = True
-
 
         # Edit locator bone
         locator_bone.parent = armature.data.edit_bones[self.root_bone]
@@ -2637,6 +2643,7 @@ class BCRY_OT_add_primitive_mesh(bpy.types.Operator):
         col.separator()
 
     def __init__(self):
+        super().__init__()
         armature = bpy.context.active_object
         if not armature or armature.type != 'ARMATURE':
             self.report({'ERROR'}, "Please select a armature object!")
@@ -2767,6 +2774,7 @@ class BCRY_OT_physicalize_skeleton(bpy.types.Operator):
         description='Use single material for all bone proxies.')
 
     def __init__(self):
+        super().__init__()
         armature = bpy.context.active_object
         if armature.type != 'ARMATURE':
             self.report({'ERROR'}, 'You have to select a armature object!')
@@ -3210,6 +3218,7 @@ class BCRY_OT_clear_skeleton_physics(bpy.types.Operator):
                                  description='Clears physic proxies.')
 
     def __init__(self):
+        super().__init__()
         armature = bpy.context.active_object
         if armature.type != 'ARMATURE':
             self.report({'ERROR'}, 'You have to select a armature object!')

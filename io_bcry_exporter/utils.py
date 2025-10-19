@@ -206,7 +206,7 @@ def bcry_split_modifier(object_):
     use_edge_sharp = False
     for modifier in object_.modifiers:
         # It is an "Essential" library geometry node, can't detect type, just use name here
-        if modifier.name == "Smooth by Angle":
+        if modifier.name.startswith("Smooth by Angle"):
             use_edge_angle = True
             use_edge_sharp = not modifier["Socket_1"]
             split_angle = modifier["Input_1"]
@@ -216,10 +216,7 @@ def bcry_split_modifier(object_):
             break
     
     if has_smooth_by_angle_modfier:
-        modifier_unique_name = 'BCRY_EDGE_SPLIT'
-
-        object_.modifiers.new(modifier_unique_name, 'EDGE_SPLIT')
-        edge_split_modifier = object_.modifiers.get(modifier_unique_name)
+        edge_split_modifier = object_.modifiers.new('BCRY_EDGE_SPLIT', 'EDGE_SPLIT')
         edge_split_modifier.use_edge_angle = use_edge_angle
         edge_split_modifier.use_edge_sharp = use_edge_sharp
         edge_split_modifier.split_angle = split_angle
@@ -227,16 +224,19 @@ def bcry_split_modifier(object_):
 
 
 def remove_bcry_split_modifier(object_):
-    modifier_unique_name = 'BCRY_EDGE_SPLIT'
-    edge_split_modifier = object_.modifiers.get(modifier_unique_name)
+    edge_split_modifier = object_.modifiers.get('BCRY_EDGE_SPLIT')
     if edge_split_modifier:
         active_object = bpy.context.active_object
         bpy.context.view_layer.objects.active = object_
         bpy.ops.object.modifier_add_node_group(asset_library_type='ESSENTIALS', asset_library_identifier="", relative_asset_identifier="geometry_nodes\\smooth_by_angle.blend\\NodeTree\\Smooth by Angle")
-        smooth_by_angle = object_.modifiers["Smooth by Angle"]
-        smooth_by_angle["Input_1"] = edge_split_modifier.split_angle
-        smooth_by_angle["Socket_1"] = not edge_split_modifier.use_edge_sharp
-        bpy.context.view_layer.objects.active = active_object
+        for modifier in object_.modifiers:
+            if modifier.name.startswith("Smooth by Angle"):
+                # The restored "Smooth by Angle" modifier will be named to "Smooth by Angle.001", change it back
+                modifier.name = "Smooth by Angle"
+                modifier["Input_1"] = edge_split_modifier.split_angle
+                modifier["Socket_1"] = not edge_split_modifier.use_edge_sharp
+                bpy.context.view_layer.objects.active = active_object
+                break
 
         object_.modifiers.remove(edge_split_modifier)
 
