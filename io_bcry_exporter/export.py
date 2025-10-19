@@ -914,8 +914,11 @@ class CrytekDaeExporter:
             prop = self._doc.createTextNode("CustomExportPath=")
             properties.appendChild(prop)
         else:
-            if not node.rna_type.id_data.items():
-                return
+            # # TODO: Handle case when node is not an export node
+            # # node.rna_type.id_data.items() always false as id_data none since Blender 4.5 LTS
+            # # Should use object_.keys() to iterate custom properties
+            # if not node.rna_type.id_data.items():
+            return
 
         technique.appendChild(properties)
 
@@ -971,14 +974,14 @@ class CrytekDaeExporter:
 
     def _create_user_defined_property(self, object_):
         udp_buffer = ""
-        for prop in object_.rna_type.id_data.items():
-            if prop:
-                prop_name = prop[0]
-                if udp.is_user_defined_property(prop_name):
-                    if isinstance(prop[1], str):
-                        udp_buffer += "{!s}\n".format(prop[1])
+        for key in object_.keys():
+            if key not in "_RNA_UI":
+                prop = object_[key]
+                if udp.is_user_defined_property(key):
+                    if isinstance(prop, str):
+                        udp_buffer += "{!s}\n".format(prop)
                     else:
-                        udp_buffer += "{!s}={!s}\n".format(prop[0], prop[1])
+                        udp_buffer += "{!s}={!s}\n".format(key, prop)
 
         if udp_buffer or utils.is_dummy(object_):
             extra = self._doc.createElement("extra")
