@@ -14,7 +14,7 @@ Copy `io_bcry_exporter` folder to `<BLENDER PATH>\scripts\addons` directory.<br>
 * Initial author: AFCStudio, https://github.com/AFCStudio/BCRYExporter
 
 ## Update History
-### 1.0.1
+### 1.1.0
 * Supports Blender 4.5 LTS (4.5.3)
 ### 0.9.0
 * Supports Blender 4.4
