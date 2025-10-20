@@ -62,6 +62,7 @@ else:
 
 # import configparser
 import math
+import mathutils
 import os
 import os.path
 from unicodedata import name
@@ -577,26 +578,27 @@ class BCRY_OT_feet_on_floor(bpy.types.Operator):
     bl_idname = "bcry.feet_on_floor"
     bl_options = {'REGISTER', 'UNDO'}
 
-    z_offset: FloatProperty(name="Z Offset",
-                            default=0.0, step=0.1, precision=3,
-                            description="Z offset for center of object.")
+    z_offset: bpy.props.FloatProperty(
+        name="Z Offset",
+        default=0.0, step=0.1, precision=3,
+        description="Z offset for center of object."
+    )
 
     def execute(self, context):
         old_cursor = context.scene.cursor.location.copy()
         for obj in context.selected_objects:
             ctx = utils.override(obj, active=True, selected=True)
-            bpy.ops.object.origin_set(
-                ctx, type="ORIGIN_GEOMETRY", center="BOUNDS")
-            bpy.ops.view3d.snap_cursor_to_selected(ctx)
-            x, y, z = bpy.context.scene.cursor.location
-            z = obj.location.z - obj.dimensions.z / 2 - self.z_offset
-            bpy.context.scene.cursor.location = Vector((x, y, z))
-            bpy.ops.object.origin_set(ctx, type="ORIGIN_CURSOR")
-            bpy.context.scene.cursor.location = Vector((0, 0, 0))
-            bpy.ops.view3d.snap_selected_to_cursor(ctx)
+            with bpy.context.temp_override(**ctx):
+                bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="BOUNDS")
+                bpy.ops.view3d.snap_cursor_to_selected()
+                x, y, z = context.scene.cursor.location
+                z = obj.location.z - obj.dimensions.z / 2 - self.z_offset
+                context.scene.cursor.location = mathutils.Vector((x, y, z))
+                bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
+                context.scene.cursor.location = mathutils.Vector((0, 0, 0))
+                bpy.ops.view3d.snap_selected_to_cursor()
 
-        bpy.context.scene.cursor.location = old_cursor
-
+        context.scene.cursor.location = old_cursor
         return {'FINISHED'}
 
     def invoke(self, context, event):
