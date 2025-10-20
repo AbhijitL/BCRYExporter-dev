@@ -208,26 +208,6 @@ class BCRY_OT_add_cry_export_node(bpy.types.Operator):
     )
     node_name: StringProperty(name="Name")
 
-    def __init__(self):
-        super().__init__()
-
-        object_ = bpy.context.active_object
-        self.node_name = object_.name
-        self.node_type = 'cgf'
-
-        if object_.type not in ('MESH', 'EMPTY'):
-            self.report({'ERROR'}, "Selected object is not a mesh! Please select a mesh object.")
-            return {'FINISHED'}
-
-        if object_.parent and object_.parent.type == 'ARMATURE':
-            if len(object_.data.vertices) <= 4:
-                self.node_type = 'chr'
-                self.node_name = object_.parent.name
-            else:
-                self.node_type = 'skin'
-        elif object_.animation_data:
-            self.node_type = 'cga'
-
     def execute(self, context):
         bpy.ops.object.mode_set(mode='OBJECT')
         if bpy.context.selected_objects:
@@ -261,11 +241,23 @@ class BCRY_OT_add_cry_export_node(bpy.types.Operator):
         return {"FINISHED"}
 
     def invoke(self, context, event):
-        if not context.selected_objects:
-            self.report(
-                {'ERROR'},
-                "Select one or more objects in OBJECT mode.")
-            return {'FINISHED'}
+        object_ = context.active_object
+        if not object_:
+            self.report({'ERROR'}, "No active object selected!")
+            return {'CANCELLED'}
+        if object_.type not in ('MESH', 'EMPTY'):
+            self.report({'ERROR'}, "Selected object is not a mesh!")
+            return {'CANCELLED'}
+        self.node_name = object_.name
+        self.node_type = 'cgf'
+        if object_.parent and object_.parent.type == 'ARMATURE':
+            if len(object_.data.vertices) <= 4:
+                self.node_type = 'chr'
+                self.node_name = object_.parent.name
+            else:
+                self.node_type = 'skin'
+        elif object_.animation_data:
+            self.node_type = 'cga'
 
         return context.window_manager.invoke_props_dialog(self)
 
@@ -339,36 +331,6 @@ class BCRY_OT_add_cry_animation_node(bpy.types.Operator):
             col.label(text="Marker`s Name Ends:")
             col.prop(self, "start_m_name_auto")
             col.prop(self, "end_m_name_auto")
-
-    def __init__(self):
-        super().__init__()
-        # bpy.ops.object.mode_set(mode='OBJECT')
-        if bpy.context.active_object.type == 'ARMATURE':
-            self.node_type = 'i_caf'
-        else:
-            self.node_type = 'anm'
-
-        self.node_start = bpy.context.scene.frame_start
-        self.node_end = bpy.context.scene.frame_end
-
-        self.start_m_name_auto = ""
-        self.end_m_name_auto = "_E"
-
-        tm = bpy.context.scene.timeline_markers
-        for marker in tm:
-            if marker.select:
-                self.start_m_name = marker.name
-                self.end_m_name = "{}_E".format(marker.name)
-                self.is_use_markers = True
-
-                self.node_start = marker.frame
-                if tm.find(self.end_m_name) != -1:
-                    self.node_end = tm[self.end_m_name].frame
-
-                self.node_name = marker.name
-                break
-
-        return None
 
     def execute(self, context):
         object_ = bpy.context.active_object
@@ -484,12 +446,30 @@ class BCRY_OT_add_cry_animation_node(bpy.types.Operator):
                         collection.objects.link(obj)
 
     def invoke(self, context, event):
-        object_ = bpy.context.active_object
-        if not object_:
-            self.report(
-                {'ERROR'},
-                "Please select and active a armature or object.")
-            return {'FINISHED'}
+        obj = context.active_object
+        if not obj:
+            self.report({'ERROR'}, "Please select and active an armature or object.")
+            return {'CANCELLED'}
+
+        self.node_type = 'i_caf' if obj.type == 'ARMATURE' else 'anm'
+
+        scene = context.scene
+        self.node_start = scene.frame_start
+        self.node_end = scene.frame_end
+
+        self.start_m_name_auto = ""
+        self.end_m_name_auto = "_E"
+
+        tm = scene.timeline_markers
+        for marker in tm:
+            if marker.select:
+                self.start_m_name = marker.name
+                self.end_m_name = f"{marker.name}_E"
+                self.node_start = marker.frame
+                if tm.get(self.end_m_name):
+                    self.node_end = tm[self.end_m_name].frame
+                self.node_name = marker.name
+                break
 
         return context.window_manager.invoke_props_dialog(self)
 
