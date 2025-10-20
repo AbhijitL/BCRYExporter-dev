@@ -620,13 +620,6 @@ class BCRY_OT_generate_lods(bpy.types.Operator):
         col.prop(self, "view_offset")
         col.separator()
 
-    def __init__(self):
-        super().__init__()
-        object_ = bpy.context.active_object
-        if not object_ or object_.type != 'MESH':
-            self.report({'ERROR'}, "Please select a mesh object!")
-            return {'FINISHED'}
-
     def execute(self, context):
         object_ = bpy.context.active_object
 
@@ -671,6 +664,11 @@ class BCRY_OT_generate_lods(bpy.types.Operator):
 
         return {'FINISHED'}
 
+    def invoke(self, context, event):
+        if context.object is None or context.object.type != "MESH" or context.object.mode != "OBJECT":
+            self.report({'ERROR'}, "Select a mesh in OBJECT mode.")
+            return {'CANCELLED'}
+        return context.window_manager.invoke_props_dialog(self)
 
 class BCRY_OT_add_proxy(bpy.types.Operator):
     '''Click to add proxy to selected mesh. The proxy will always display as a box but will \
@@ -1488,21 +1486,19 @@ class BCRY_OT_edit_inverse_kinematics(bpy.types.Operator):
 
     bone = None
 
-    def __init__(self):
-        super().__init__()
-        armature = bpy.context.active_object
-        if armature is None or armature.type != "ARMATURE":
-            return None
+    def invoke(self, context, event):
+        if (context.object is None or context.object.type != "ARMATURE" or
+                context.object.mode != "POSE" or self.bone is None):
+            self.report({'ERROR'}, "Please select a bone in POSE mode!")
+            return {'CANCELLED'}
 
         if bpy.context.active_pose_bone:
             self.bone = bpy.context.active_pose_bone
         else:
-            return None
+            return {'CANCELLED'}
 
-        try:
+        if 'phys_proxy' in self.bone:
             self.proxy_type = self.bone['phys_proxy']
-        except:
-            pass
 
         self.is_rotation_lock[0] = self.bone.lock_ik_x
         self.is_rotation_lock[1] = self.bone.lock_ik_y
@@ -1516,14 +1512,14 @@ class BCRY_OT_edit_inverse_kinematics(bpy.types.Operator):
         self.rotation_max[1] = int(math.degrees(self.bone.ik_max_y))
         self.rotation_max[2] = int(math.degrees(self.bone.ik_max_z))
 
-        try:
+        if 'Spring' in self.bone:
             self.bone_spring = self.bone['Spring']
+        if 'Spring Tension' in self.bone:
             self.bone_spring_tension = self.bone['Spring Tension']
+        if 'Damping' in self.bone:
             self.bone_damping = self.bone['Damping']
-        except:
-            pass
 
-        return None
+        return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
         if self.bone is None:
@@ -1549,14 +1545,6 @@ class BCRY_OT_edit_inverse_kinematics(bpy.types.Operator):
         self.bone['Damping'] = self.bone_damping
 
         return {'FINISHED'}
-
-    def invoke(self, context, event):
-        if (context.object is None or context.object.type != "ARMATURE" or
-                context.object.mode != "POSE" or self.bone is None):
-            self.report({'ERROR'}, "Please select a bone in POSE mode!")
-            return {'FINISHED'}
-
-        return context.window_manager.invoke_props_dialog(self)
 
 
 class BCRY_OT_apply_animation_scale(bpy.types.Operator):
@@ -1611,13 +1599,11 @@ class BCRY_OT_edit_physic_proxy(bpy.types.Operator):
 
     object_ = None
 
-    def __init__(self):
-        super().__init__()
-        self.object_ = bpy.context.active_object
-
-        if self.object_ is None:
-            return None
-
+    def invoke(self, context, event):
+        if self.object_ is None or self.object_.type not in ('MESH', 'EMPTY'):
+            self.report({'ERROR'}, "Please select a mesh or empty object.")
+            return {'CANCELLED'}
+        
         self.proxy_type, self.is_proxy = udp.get_udp(
             self.object_, "phys_proxy", self.proxy_type, self.is_proxy)
         self.no_exp_occlusion = udp.get_udp(
@@ -1627,7 +1613,7 @@ class BCRY_OT_edit_physic_proxy(bpy.types.Operator):
         self.colltype_player = udp.get_udp(
             self.object_, "colltype_player", self.colltype_player)
 
-        return None
+        return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
         if self.object_ is None:
@@ -1651,13 +1637,6 @@ class BCRY_OT_edit_physic_proxy(bpy.types.Operator):
             self.colltype_player)
 
         return {'FINISHED'}
-
-    def invoke(self, context, event):
-        if self.object_ is None or self.object_.type not in ('MESH', 'EMPTY'):
-            self.report({'ERROR'}, "Please select a mesh or empty object.")
-            return {'FINISHED'}
-
-        return context.window_manager.invoke_props_dialog(self)
 
 
 # ------------------------------------------------------------------------------
@@ -1704,31 +1683,6 @@ class BCRY_OT_edit_render_mesh(bpy.types.Operator):
 
     object_ = None
 
-    def __init__(self):
-        super().__init__()
-        self.object_ = bpy.context.active_object
-
-        if self.object_ is None:
-            return None
-
-        self.mass, self.is_mass = udp.get_udp(self.object_,
-                                              "mass", self.mass, self.is_mass)
-        self.density, self.is_density = udp.get_udp(
-            self.object_, "density", self.density, self.is_density)
-        self.pieces, self.is_pieces = udp.get_udp(
-            self.object_, "pieces", self.pieces, self.is_pieces)
-        self.no_hit_refinement = udp.get_udp(
-            self.object_, "no_hit_refinement", self.no_hit_refinement)
-        self.other_rendermesh = udp.get_udp(
-            self.object_, "other_rendermesh", self.other_rendermesh)
-
-        self.is_entity = udp.get_udp(self.object_, "entity", self.is_entity)
-        self.is_dynamic = udp.get_udp(self.object_, "dynamic", self.is_dynamic)
-
-        self.hull = udp.get_udp(self.object_, "hull", self.hull)
-        self.wheel = udp.get_udp(self.object_, "wheel", self.wheel)
-
-        return None
 
     def execute(self, context):
         if self.object_ is None:
@@ -1759,6 +1713,23 @@ class BCRY_OT_edit_render_mesh(bpy.types.Operator):
         if self.object_ is None or self.object_.type not in ('MESH', 'EMPTY'):
             self.report({'ERROR'}, "Please select a mesh or empty object.")
             return {'FINISHED'}
+
+        self.mass, self.is_mass = udp.get_udp(self.object_,
+                                              "mass", self.mass, self.is_mass)
+        self.density, self.is_density = udp.get_udp(
+            self.object_, "density", self.density, self.is_density)
+        self.pieces, self.is_pieces = udp.get_udp(
+            self.object_, "pieces", self.pieces, self.is_pieces)
+        self.no_hit_refinement = udp.get_udp(
+            self.object_, "no_hit_refinement", self.no_hit_refinement)
+        self.other_rendermesh = udp.get_udp(
+            self.object_, "other_rendermesh", self.other_rendermesh)
+
+        self.is_entity = udp.get_udp(self.object_, "entity", self.is_entity)
+        self.is_dynamic = udp.get_udp(self.object_, "dynamic", self.is_dynamic)
+
+        self.hull = udp.get_udp(self.object_, "hull", self.hull)
+        self.wheel = udp.get_udp(self.object_, "wheel", self.wheel)
 
         return context.window_manager.invoke_props_dialog(self)
 
@@ -1811,31 +1782,6 @@ class BCRY_OT_edit_joint_node(bpy.types.Operator):
 
     object_ = None
 
-    def __init__(self):
-        super().__init__()
-        self.object_ = bpy.context.active_object
-
-        if self.object_ is None:
-            return None
-
-        self.limit, self.is_limit = udp.get_udp(
-            self.object_, "limit", self.limit, self.is_limit)
-        self.bend, self.is_bend = udp.get_udp(
-            self.object_, "bend", self.bend, self.is_bend)
-        self.twist, self.is_twist = udp.get_udp(
-            self.object_, "twist", self.twist, self.is_twist)
-        self.pull, self.is_pull = udp.get_udp(
-            self.object_, "pull", self.pull, self.is_pull)
-        self.push, self.is_push = udp.get_udp(
-            self.object_, "push", self.push, self.is_push)
-        self.shift, self.is_shift = udp.get_udp(
-            self.object_, "shift", self.shift, self.is_shift)
-        self.player_can_break = udp.get_udp(
-            self.object_, "player_can_break", self.player_can_break)
-        self.gameplay_critical = udp.get_udp(
-            self.object_, "gameplay_critical", self.gameplay_critical)
-
-        return None
 
     def execute(self, context):
         if self.object_ is None:
@@ -1857,6 +1803,23 @@ class BCRY_OT_edit_joint_node(bpy.types.Operator):
         if self.object_ is None or self.object_.type not in ('MESH', 'EMPTY'):
             self.report({'ERROR'}, "Please select a mesh or empty object.")
             return {'FINISHED'}
+
+        self.limit, self.is_limit = udp.get_udp(
+            self.object_, "limit", self.limit, self.is_limit)
+        self.bend, self.is_bend = udp.get_udp(
+            self.object_, "bend", self.bend, self.is_bend)
+        self.twist, self.is_twist = udp.get_udp(
+            self.object_, "twist", self.twist, self.is_twist)
+        self.pull, self.is_pull = udp.get_udp(
+            self.object_, "pull", self.pull, self.is_pull)
+        self.push, self.is_push = udp.get_udp(
+            self.object_, "push", self.push, self.is_push)
+        self.shift, self.is_shift = udp.get_udp(
+            self.object_, "shift", self.shift, self.is_shift)
+        self.player_can_break = udp.get_udp(
+            self.object_, "player_can_break", self.player_can_break)
+        self.gameplay_critical = udp.get_udp(
+            self.object_, "gameplay_critical", self.gameplay_critical)
 
         return context.window_manager.invoke_props_dialog(self)
 
@@ -1918,12 +1881,10 @@ class BCRY_OT_edit_deformable(bpy.types.Operator):
 
     object_ = None
 
-    def __init__(self):
-        super().__init__()
-        self.object_ = bpy.context.active_object
-
-        if self.object_ is None:
-            return None
+    def invoke(self, context, event):
+        if self.object_ is None or self.object_.type not in ('MESH', 'EMPTY'):
+            self.report({'ERROR'}, "Please select a mesh or empty object.")
+            return {'FINISHED'}
 
         self.stiffness, self.is_stiffness = udp.get_udp(
             self.object_, "stiffness", self.stiffness, self.is_stiffness)
@@ -1942,7 +1903,7 @@ class BCRY_OT_edit_deformable(bpy.types.Operator):
 
         self.notaprim = udp.get_udp(self.object_, "notaprim", self.notaprim)
 
-        return None
+        return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
         if self.object_ is None:
@@ -1983,13 +1944,6 @@ class BCRY_OT_edit_deformable(bpy.types.Operator):
         udp.edit_udp(self.object_, "notaprim", "notaprim", self.notaprim)
 
         return {'FINISHED'}
-
-    def invoke(self, context, event):
-        if self.object_ is None or self.object_.type not in ('MESH', 'EMPTY'):
-            self.report({'ERROR'}, "Please select a mesh or empty object.")
-            return {'FINISHED'}
-
-        return context.window_manager.invoke_props_dialog(self)
 
 
 # ------------------------------------------------------------------------------
@@ -2160,8 +2114,6 @@ class BCRY_OT_find_weightless(bpy.types.Operator):
     #         col.operator("view3d.view_selected", text="Focus")
     #         col.separator()
 
-    # def __init__(self):
-        # super().__init__()
 
     def invoke(self, context, event):
         if context.object is None or context.object.type != "MESH":
@@ -2267,18 +2219,11 @@ class BCRY_OT_add_root_bone(bpy.types.Operator):
         default="y"
     )
 
-    bone_length: FloatProperty(name="Bone Length", default=0.18,
-                               description=desc.list['locator_length'])
-
-    root_name: StringProperty(name="Name", default="Root")
-
+    bone_length: FloatProperty(name="Bone Length", default=0.18, description=desc.list['locator_length'])
+    root_name: StringProperty(name="Root Name", default="Root")
     hips_bone: StringProperty(name="Hips Bone", default="hips")
 
     def invoke(self, context, event):
-        return self.execute(context)
-
-    def __init__(self):
-        super().__init__()
         bones = [bone for bone in bpy.context.active_object.pose.bones]
         search_words = ["hips", "pelvis"]
 
@@ -2286,25 +2231,27 @@ class BCRY_OT_add_root_bone(bpy.types.Operator):
             for word in search_words:
                 if word in bone.name.lower():
                     self.hips_bone = bone.name
-    #     armature = bpy.context.active_object
-    #     if not armature or armature.type != 'ARMATURE':
-    #         self.report({'ERROR'}, "Please select a armature object!")
-    #         return {'FINISHED'}
-    #     elif armature.pose.bones.find('Root') != -1:
-    #         message = "{} armature already has a Root bone!".format(
-    #             armature.name)
-    #         self.report({'INFO'}, message)
-    #         return {'FINISHED'}
+        armature = bpy.context.active_object
 
-    #     bpy.ops.object.mode_set(mode='EDIT')
-    #     root_bone = utils.get_root_bone(armature)
-    #     loc = root_bone.head
-    #     if loc.x == 0 and loc.y == 0 and loc.z == 0:
-    #         message = "Armature already has a root/center bone!"
-    #         self.report({'INFO'}, message)
-    #         return {'FINISHED'}
-    #     else:
-    #         self.hips_bone = root_bone.name
+        if not armature or armature.type != 'ARMATURE':
+            self.report({'ERROR'}, "Please select a armature object!")
+            return {'CANCELLED'}
+        elif armature.pose.bones.find(self.root_bone) != -1:
+            message = "{} armature already has a Root ({}) bone!".format(armature.name, self.root_bone)
+            self.report({'INFO'}, message)
+            return {'CANCELLED'}
+
+        bpy.ops.object.mode_set(mode='EDIT')
+        root_bone = utils.get_root_bone(armature)
+        loc = root_bone.head
+        if loc.x == 0 and loc.y == 0 and loc.z == 0:
+            message = "Armature seems to already have a root/center bone at ZERO location!"
+            self.report({'INFO'}, message)
+            return {'CANCELLED'}
+        else:
+            self.hips_bone = root_bone.name
+
+        return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
         armature = bpy.context.active_object
@@ -2420,23 +2367,20 @@ class BCRY_OT_add_locator_locomotion(bpy.types.Operator):
         col.prop(self, "z_axis")
 
     def invoke(self, context, event):
-        return self.execute(context)
-
-    def __init__(self):
-        super().__init__()
         armature = bpy.context.active_object
         if not armature or armature.type != 'ARMATURE':
             self.report({'ERROR'}, "Please select a armature object!")
-            return {'FINISHED'}
+            return {'CANCELLED'}
         elif armature.pose.bones.find('Locator_Locomotion') != -1:
             message = "{} armature already has a Locator Locomotion bone!".format(
                 armature.name)
             self.report({'ERROR'}, message)
-            return {'FINISHED'}
+            return {'CANCELLED'}
 
         root_bone = utils.get_root_bone(armature)
         self.root_bone = root_bone.name
         self.movement_bone = root_bone.children[0].name
+        return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
         armature = bpy.context.active_object
@@ -2540,8 +2484,7 @@ class BCRY_OT_add_primitive_mesh(bpy.types.Operator):
     bl_idname = "bcry.add_primitive_mesh"
     bl_options = {'REGISTER', 'UNDO'}
 
-    root_bone: StringProperty(name="Root Bone", default="Root",
-                              description=desc.list['locator_root'])
+    root_bone: StringProperty(name="Root Bone", default="Root", description=desc.list['locator_root'])
 
     def draw(self, context):
         layout = self.layout
@@ -2550,15 +2493,14 @@ class BCRY_OT_add_primitive_mesh(bpy.types.Operator):
         col.prop(self, "root_bone")
         col.separator()
 
-    def __init__(self):
-        super().__init__()
+    def invoke(self, context, event):
         armature = bpy.context.active_object
         if not armature or armature.type != 'ARMATURE':
             self.report({'ERROR'}, "Please select a armature object!")
-            return {'FINISHED'}
-
+            return {'CANCELLED'}
         root_bone = utils.get_root_bone(armature)
         self.root_bone = root_bone.name
+        return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
         armature = bpy.context.active_object
@@ -2628,72 +2570,30 @@ class BCRY_OT_physicalize_skeleton(bpy.types.Operator):
     bl_idname = "bcry.physicalize_skeleton"
     bl_options = {'REGISTER', 'UNDO'}
 
-    physic_skeleton: BoolProperty(name='Physic Skeleton', default=True,
-                                  description='Creates physic skeleton.')
+    physic_skeleton: BoolProperty(name='Physic Skeleton', default=True, description='Creates physic skeleton.')
+    physic_proxies: BoolProperty(name='Physic Proxies', default=True, description='Creates physic proxies.')
+    physic_proxy_settings: BoolProperty(name='Physic Proxy Settings', default=True, description='Fill physic proxy settings to default.')
+    physic_ik_settings: BoolProperty(name='IK Settings', default=True, description='Fill IK settings to default.')
+    radius_torso: FloatProperty(name='Torso Radius', default=0.12, min=0.01, precision=3, step=0.1, description='Torso bones radius')
+    radius_head: FloatProperty(name='Head Radius', default=0.1, min=0.01, precision=3, step=0.1, description='Head bones radius')
+    radius_arm: FloatProperty(name='Arm Radius', default=0.04, min=0.01, precision=3, step=0.1, description='Arm bones radius')
+    radius_leg: FloatProperty(name='Leg Radius', default=0.05, min=0.01, precision=3, step=0.1, description='Leg bones radius')
+    radius_foot: FloatProperty(name='Foot Radius', default=0.05, min=0.01, precision=3, step=0.1, description='Foot bones radius')
+    radius_other: FloatProperty(name='Other Radius', default=0.05, min=0.01, precision=3, step=0.1, description='Other bones radius')
+    physic_materials: BoolProperty(name='Create Physic Materials', default=True, description='Creates materials for bone proxies.')
+    physic_alpha: FloatProperty(name='Physic Alpha', default=0.2, min=0.0, max=1.0, step=1.0, description='Set physic proxy alpha value.')
+    use_single_material: BoolProperty(name='Use Single Material', default=False, description='Use single material for all bone proxies.')
 
-    physic_proxies: BoolProperty(name='Physic Proxies', default=True,
-                                 description='Creates physic proxies.')
-
-    physic_proxy_settings: BoolProperty(
-        name='Physic Proxy Settings',
-        default=True,
-        description='Fill physic proxy settings to default.')
-
-    physic_ik_settings: BoolProperty(
-        name='IK Settings',
-        default=True,
-        description='Fill IK settings to default.')
-
-    radius_torso: FloatProperty(name='Torso Radius', default=0.12,
-                                min=0.01, precision=3, step=0.1,
-                                description='Torso bones radius')
-
-    radius_head: FloatProperty(name='Head Radius', default=0.1,
-                               min=0.01, precision=3, step=0.1,
-                               description='Head bones radius')
-
-    radius_arm: FloatProperty(name='Arm Radius', default=0.04,
-                              min=0.01, precision=3, step=0.1,
-                              description='Arm bones radius')
-
-    radius_leg: FloatProperty(name='Leg Radius', default=0.05,
-                              min=0.01, precision=3, step=0.1,
-                              description='Leg bones radius')
-
-    radius_foot: FloatProperty(name='Foot Radius', default=0.05,
-                               min=0.01, precision=3, step=0.1,
-                               description='Foot bones radius')
-
-    radius_other: FloatProperty(name='Other Radius', default=0.05,
-                                min=0.01, precision=3, step=0.1,
-                                description='Other bones radius')
-
-    physic_materials: BoolProperty(
-        name='Create Physic Materials',
-        default=True,
-        description='Creates materials for bone proxies.')
-    physic_alpha: FloatProperty(name='Physic Alpha', default=0.2,
-                                min=0.0, max=1.0, step=1.0,
-                                description='Set physic proxy alpha value.')
-
-    use_single_material: BoolProperty(
-        name='Use Single Material',
-        default=False,
-        description='Use single material for all bone proxies.')
-
-    def __init__(self):
-        super().__init__()
+    def invoke(self, context, event):
         armature = bpy.context.active_object
         if armature.type != 'ARMATURE':
             self.report({'ERROR'}, 'You have to select a armature object!')
-            return {'FINISHED'}
-
+            return {'CANCELLED'}
         group = utils.get_chr_node_from_skeleton(armature)
         if not group:
-            self.report(
-                {'ERROR'},
-                'Your armature has to has a primitive mesh which added to a CHR node!')
-            return {'FINISHED'}
+            self.report({'ERROR'}, 'Your armature has to has a primitive mesh which added to a CHR node!')
+            return {'CANCELLED'}
+        return context.window_manager.invoke_props_dialog(self)
 
     def draw(self, context):
         layout = self.layout
@@ -3119,25 +3019,19 @@ class BCRY_OT_clear_skeleton_physics(bpy.types.Operator):
     bl_idname = "bcry.clear_skeleton_physics"
     bl_options = {'REGISTER', 'UNDO'}
 
-    physic_skeleton: BoolProperty(name='Remove Physic Skeleton', default=True,
-                                  description='Removes physic skeleton.')
+    physic_skeleton: BoolProperty(name='Remove Physic Skeleton', default=True, description='Removes physic skeleton.')
+    physic_proxies: BoolProperty(name='Clear Physic Proxies', default=True, description='Clears physic proxies.')
 
-    physic_proxies: BoolProperty(name='Clear Physic Proxies', default=True,
-                                 description='Clears physic proxies.')
-
-    def __init__(self):
-        super().__init__()
+    def invoke(self, context, event):
         armature = bpy.context.active_object
         if armature.type != 'ARMATURE':
             self.report({'ERROR'}, 'You have to select a armature object!')
-            return {'FINISHED'}
-
+            return {'CANCELLED'}
         group = utils.get_chr_node_from_skeleton(armature)
         if not group:
-            self.report(
-                {'ERROR'},
-                'Your armature has to has a primitive mesh which added to a CHR node!')
-            return {'FINISHED'}
+            self.report({'ERROR'}, 'Your armature has to has a primitive mesh which added to a CHR node!')
+            return {'CANCELLED'}
+        return context.window_manager.invoke_props_dialog(self)
 
     def draw(self, context):
         layout = self.layout
