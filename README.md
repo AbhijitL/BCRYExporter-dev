@@ -1,19 +1,22 @@
 # BCRYExporter
 # Note
-Blender 4.5 LTS will be the last major version to support. This is because Blender 5.0 has removed colloda support, which is used by CryEngine Resource Compiler as intermediate file format.<br/>
-However, this plugin will still be maintained though.
+* Blender 4.5 LTS will be the last major version to support. This is because Blender 5.0 has removed colloda support, which is used by CryEngine Resource Compiler as intermediate file format.<br/>
+* However, this plugin will still be maintained though.
+* There may be some other errors, I'd appreciate it if any user could bring them to the 'Issues' once encounter with. Thanks.
 
 # Installation:
 Copy `io_bcry_exporter` folder to `<BLENDER PATH>\scripts\addons` directory.<br>
 <b>Example:</b> `C:\Users\<YOUR USER NAME>\AppData\Roaming\Blender Foundation\Blender\4.5\scripts\addons`
 
 # Version History
-## Authors History
+## Repo & Authors History
 * Current repo author: brickengineer, https://github.com/brickengineer/BCRYExporter
 * Blender 2.79-2.8 repo author: LeonidasWhite, https://github.com/LeonidasWhite/BCRYExporter
 * Initial author: AFCStudio, https://github.com/AFCStudio/BCRYExporter
 
 ## Update History
+### 1.1.1
+* Fixed Add export node and "feet on floor" utility function error due to blender 4.5 LTS API changes by @AbhijitL in https://github.com/brickengineer/BCRYExporter/pull/5
 ### 1.1.0
 * Supports Blender 4.5 LTS (4.5.3)
 ### 0.9.0
