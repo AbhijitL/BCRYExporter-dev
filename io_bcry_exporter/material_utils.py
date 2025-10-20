@@ -377,8 +377,8 @@ def get_material_physics():
     physicsProperties = {}
     for material in bpy.data.materials:
         properties = extract_bcry_properties(material.name)
-        if properties:
-            physicsProperties[properties["Name"]] = properties["Physics"]
+        if properties and properties.get("Physics"):
+            physicsProperties[properties["Name"]] = properties.get("Physics")
     return physicsProperties
 
 
@@ -480,13 +480,18 @@ def extract_bcry_properties(material_name):
         properties["Physics"] = groups[0][3]
         return properties
     else:
-        if is_bcry_material_with_phys(material_name):
-            groups = re.findall(
-                "(.*)__(phys[A-Za-z0-9]+)",
-                material_name)
-            properties = {}
+        isWithNumbers = is_bcry_material_with_numbers(material_name)
+        isWithPhys = is_bcry_material_with_phys(material_name)
+        properties = {}
+        if isWithNumbers:
+            groups = re.findall("([0-9]+)__(.*)", material_name)
+            properties["Number"] = int(groups[0][0])
+            properties["Name"] = groups[0][1]
+        if isWithPhys:
+            groups = re.findall("(.*)__(phys[A-Za-z0-9]+)", material_name)
             properties["Name"] = groups[0][0]
             properties["Physics"] = groups[0][1]
+        if isWithNumbers or isWithPhys:
             return properties
     return None
 
@@ -496,7 +501,7 @@ def remove_bcry_properties(material_name):
     properties = extract_bcry_properties(material_name)
     if properties:
         return str(properties["Name"])
-    return None
+    return material_name
 
 
 def is_bcry_material(material_name):
@@ -541,8 +546,7 @@ def set_material_physic(self, context, phys_name):
 
     me = bpy.context.active_object
     if me.active_material:
-        me.active_material.name = replace_phys_material(
-            me.active_material.name, phys_name)
+        me.active_material.name = replace_phys_material(me.active_material.name, phys_name)
 
     return {'FINISHED'}
 

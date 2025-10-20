@@ -36,7 +36,7 @@ bl_info = {
     "name": "BCRY Exporter",
     "author": "Özkan Afacan; Angelo J. Miner; Mikołaj Milej; Daniel White; Oscar Martin Garcia; Duo Oratar; David Marcelis; Leonid Bilousov; Zach Wang",
     "blender": (4, 5, 3),
-    "version": (1, 1, 0),
+    "version": (1, 2, 0),
     "location": "BCRY Exporter Menu",
     "description": "Export assets from Blender to CryEngine V",
     "warning": "",
@@ -681,10 +681,12 @@ class BCRY_OT_add_proxy(bpy.types.Operator):
     type_: StringProperty()
     child_: BoolProperty()
 
+    errorReport = None
+
     def execute(self, context):
         # Create proxy for list of objects
         save_objs = []
-        active_object = bpy.context.view_layer.objects.active
+        active_object = bpy.context.active_object
         for obj in context.selected_objects:
             self.__add_proxy(obj)
             save_objs.append(obj)
@@ -699,6 +701,21 @@ class BCRY_OT_add_proxy(bpy.types.Operator):
         return {'FINISHED'}
 
     def __add_proxy(self, object_):
+        # Skip add if object is not in a BCry export node
+        exportNode = None
+        for collection in object_.users_collection:
+            if utils.is_export_node(collection):
+                if exportNode is None:
+                    exportNode = collection
+                else:
+                    errorMsg = "Object {} is in multiple export nodes!".format(object_.name)
+                    self.report({'ERROR'}, errorMsg)
+                    return {"CANCELLED"}
+        if exportNode is None:
+            errorMsg = "Object {} is not in any export node!".format(object_.name)
+            self.report({'ERROR'}, errorMsg)
+            return {"CANCELLED"}
+
         bpy.ops.object.select_all(action="DESELECT")
         object_.select_set(True)
         old_origin = object_.location.copy()
@@ -722,7 +739,7 @@ class BCRY_OT_add_proxy(bpy.types.Operator):
         else:
             bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
-        name = "99__proxy__physProxyNoDraw"
+        name = "{}__99__proxy__physProxyNoDraw".format(utils.get_node_name(exportNode))
         if name in bpy.data.materials:
             proxy_material = bpy.data.materials[name]
         else:
@@ -758,8 +775,7 @@ class BCRY_OT_add_proxy(bpy.types.Operator):
     def invoke(self, context, event):
         if context.object is None or context.object.type != "MESH" or context.object.mode != "OBJECT":
             self.report({'ERROR'}, "Select a mesh in OBJECT mode.")
-            return {'FINISHED'}
-
+            return {'CANCELLED'}
         return self.execute(context)
 
 
@@ -775,7 +791,7 @@ class BCRY_OT_add_mesh_proxy(bpy.types.Operator):
     def execute(self, context):
         # Create proxy for list of objects
         save_objs = []
-        active_object = bpy.context.view_layer.objects.active
+        active_object = bpy.context.active_object
         save_mode = 'OBJECT'
         if context.mode == 'EDIT_MESH':
             for obj in context.selected_objects:
@@ -1131,8 +1147,8 @@ def name_branch(is_new_branch):
 # ------------------------------------------------------------------------------
 
 class BCRY_OT_add_material_properties(bpy.types.Operator):
-    '''Add BCRY Exporter material properties to materials of which selected node:
-    - Material Name
+    '''Add BCRY Exporter material properties to all materials in the selected export node. Will not replace phys type if already exists. But will update material index. The material name convention is:
+    - Material/(Export Node) Name
     - Sub Material Index
     - Sub Material Name
     - Physical Proxy Type
@@ -1140,9 +1156,6 @@ class BCRY_OT_add_material_properties(bpy.types.Operator):
     bl_label = "Add BCRY Exporter material properties to materials"
     bl_idname = "bcry.add_material_properties"
 
-    # material_name: StringProperty(
-    #     name="Material Name",
-    #     description="Main material name which shown at CryEngine")
     material_phys: EnumProperty(
         name="Physical Proxy",
         items=(
@@ -1156,29 +1169,8 @@ class BCRY_OT_add_material_properties(bpy.types.Operator):
 
     object_ = None
     errorReport = None
-
-    def __init__(self):
-        super().__init__()
-        cryNodeReport = "Please select a object that in a Cry Export node" \
-            + " for 'Do Material Convention'. If you have not created" \
-            + " it yet, please create it with 'Add ExportNode' tool."
-
-        self.object_ = bpy.context.active_object
-        
-        # As we only handle with selected material slot of the active object now,
-        # and export node name is not used any longer, we don't need to check node existence anymore
-        # if self.object_ is None or self.object_.users_collection is None:
-        #     self.errorReport = cryNodeReport
-        #     return None
-
-        for group in self.object_.users_collection:
-            if utils.is_export_node(group):
-                self.material_name = utils.get_node_name(group)
-                return None
-
-        self.errorReport = cryNodeReport
-
-        return None
+    exportNode = None
+    material_name = None
 
     def execute(self, context):
         if self.errorReport is not None:
@@ -1188,81 +1180,79 @@ class BCRY_OT_add_material_properties(bpy.types.Operator):
         # and store their possible physics properties in a dictionary.
         physicsProperties = material_utils.get_material_physics()
 
-        # Create a dictionary with all CryExportNodes to store the current number
-        # of materials in it.
-        # materialCounter = material_utils.get_material_counter()
+        # Create a dictionary with all CryExportNodes to store the current number of materials in it.
+        materialCounter = material_utils.get_material_counter()
 
-        # for collection in self.object_.users_collection:
-        #     if utils.is_export_node(collection):
-        #         for object in collection.objects:
-        #             for slot in object.material_slots:
-        #                 # Skip materials that have been renamed already.
-        #                 if not material_utils.is_bcry_material(
-        #                         slot.material.name):
-        #                     materialCounter[collection.name] += 1
-        #                     materialOldName = slot.material.name
+        handledSubMatNames = {}
+        for object in self.exportNode.objects:
+            for slot in object.material_slots:
+                # skip materials that have been renamed already.
+                materialOldName = slot.material.name
+                materialOldName_noProperties = material_utils.remove_bcry_properties(materialOldName)
+                if handledSubMatNames.get(materialOldName_noProperties) is None:
+                    materialCounter[self.exportNode.name] += 1 # initial value is 0, and index start with 1
+                    handledSubMatNames[materialOldName_noProperties] = 1
 
-        #                     # Load stored Physics if available for that
-        #                     # material.
-        #                     if physicsProperties.get(slot.material.name):
-        #                         physics = physicsProperties[slot.material.name]
-        #                     else:
-        #                         physics = self.material_phys
+                    # Load stored Physics if available for that material.
+                    # Use existing physics if material already has one.
+                    if physicsProperties.get(materialOldName_noProperties):
+                        physics = physicsProperties[materialOldName_noProperties]
+                    else:
+                        physics = self.material_phys
+                        message = "Assigned new physics '{}' to material (old name) '{}'".format(physics, materialOldName)
+                        self.report({'INFO'}, message)
+                        bcPrint(message)
+                        # print all material physics assignments
+                        for mat_name, phys in physicsProperties.items():
+                            message = "Material '{}' has physics '{}'".format(mat_name, phys)
+                            self.report({'INFO'}, message)
+                            bcPrint(message)
 
-        #                     # Rename.
-        #                     slot.material.name = "{}__{:02d}__{}__{}".format(
-        #                         self.material_name,
-        #                         materialCounter[collection.name],
-        #                         utils.replace_invalid_rc_characters(materialOldName),
-        #                         physics)
-        #                     message = "Renamed {} to {}".format(
-        #                         materialOldName,
-        #                         slot.material.name)
-        #                     self.report({'INFO'}, message)
-        #                     bcPrint(message)
-        # return {'FINISHED'}
-
-        # Rename
-        activateMaterial = self.object_.active_material
-        if not material_utils.is_bcry_material(
-            activateMaterial.name):
-            # materialCounter[collection.name] += 1
-            materialOldName = activateMaterial.name
-
-            # Load stored Physics if available for that
-            # material.
-            if physicsProperties.get(activateMaterial.name):
-                physics = physicsProperties[activateMaterial.name]
-            else:
-                physics = self.material_phys
-
-            # Rename.
-            # activateMaterial.name = "{}__{:02d}__{}__{}".format(
-            #     self.material_name,
-            #     materialCounter[collection.name],
-            #     utils.replace_invalid_rc_characters(materialOldName),
-            #     physics)
-            materialOldName_noProperties = material_utils.remove_bcry_properties(materialOldName)
-            activateMaterial.name = "{}__{}".format(
-                utils.replace_invalid_rc_characters(materialOldName_noProperties if materialOldName_noProperties is not None else materialOldName),
-                physics)
-            message = "Renamed {} to {}".format(
-                materialOldName,
-                activateMaterial.name)
-            self.report({'INFO'}, message)
-            bcPrint(message)       
+                    # Rename.
+                    slot.material.name = "{}__{:02d}__{}__{}".format(
+                        self.material_name,
+                        materialCounter[self.exportNode.name],
+                        utils.replace_invalid_rc_characters(materialOldName_noProperties),
+                        physics)
+                    message = "Renamed {} to {}".format(
+                        materialOldName,
+                        slot.material.name)
+                    self.report({'INFO'}, message)
+                    bcPrint(message)
+                else:
+                    handledSubMatNames[materialOldName_noProperties] += 1
         return {'FINISHED'}
 
     def invoke(self, context, event):
-        if self.errorReport is not None:
-            return self.report({'ERROR'}, self.errorReport)
+        cryNodeReport = "Please select a object that in a Cry Export node" \
+            + " for 'Do Material Convention'. If you have not created" \
+            + " it yet, please create it with 'Add ExportNode' tool."
 
-        return context.window_manager.invoke_props_dialog(self)
+        self.object_ = bpy.context.active_object
+        if(self.object_ is None):
+            self.errorReport = cryNodeReport
+        else:
+            # Find the export node the object is in, and report error if in multiple export nodes.
+            self.exportNode = None
+            for collection in self.object_.users_collection:
+                if utils.is_export_node(collection):
+                    if self.exportNode is None:
+                        self.exportNode = collection
+                        self.material_name = utils.get_node_name(collection)
+                    else:
+                        self.errorReport = "Object is in multiple Cry Export nodes. Skip operation to avoid corruption."
+                        break
+            if self.exportNode is None:
+                self.errorReport = cryNodeReport
+            else:
+                if self.errorReport is None:
+                    return context.window_manager.invoke_props_dialog(self)                
+        self.report({'ERROR'}, self.errorReport)
+        return {'CANCELLED'}
 
 
 class BCRY_OT_discard_material_properties(bpy.types.Operator):
-    '''Removes all BCRY Exporter properties from material names. This includes \
-    physics.'''
+    '''Removes BCRY Exporter properties from active material on active object in export node.'''
     bl_label = "Remove BCRY Exporter properties from material names"
     bl_idname = "bcry.discard_material_properties"
 
@@ -1300,34 +1290,25 @@ class BCRY_OT_add_material(bpy.types.Operator):
         default="physNone"
     )
 
+    errorReport = None
+    exportNode = None
+
     def execute(self, context):
         if bpy.context.selected_objects:
-            materials = {}
-            for _object in bpy.context.selected_objects:
-                if (len(_object.users_collection) > 0):
-                    # get cryexport group
-                    node = _object.users_collection[0]
-                    node_name = _object.users_collection[0].name
-                    if utils.is_export_node(node):
-                        # get material for this group
-                        if node_name not in materials:
-                            index = len(material_utils.get_materials_per_group(node_name)) + 1
-                            # generate new material
-                            material = bpy.data.materials.new(
-                                "{}__{:03d}__{}__{}".format(
-                                    node_name.split(".")[0],
-                                    index,
-                                    self.material_name,
-                                    self.physics_type))
-                            materials[node_name] = material
-                        _object.data.materials.append(material)
-                        message = "Assigned material"
-                    else:
-                        # ignoring object without group
-                        bcPrint("Object " + _object.name +
-                                " not assigned to any group")
-                        message = "Selected Objects is not export node "
+            # get new index for material in this group (export node)
+            # Note: CryEngine material slot starts with 01 instead of 00 (to keep compatibility with 3ds Max)
+            index = len(material_utils.get_materials_per_group(self.exportNode.name)) + 1
+            # generate new material
+            material = bpy.data.materials.new(
+                "{}__{:02d}__{}__{}".format(
+                    utils.get_node_name(self.exportNode),
+                    index,
+                    self.material_name,
+                    self.physics_type))
 
+            for _object in bpy.context.selected_objects:
+                _object.data.materials.append(material)
+                message = "Assigned material"
         else:
             message = "No Objects Selected"
 
@@ -1335,18 +1316,36 @@ class BCRY_OT_add_material(bpy.types.Operator):
         return {"FINISHED"}
 
     def invoke(self, context, event):
-        if len(context.selected_objects) == 0:
-            self.report(
-                {'ERROR'},
-                "Select one or more objects in OBJECT mode.")
-            return {'FINISHED'}
-
-        return context.window_manager.invoke_props_dialog(self)
+        cryNodeReport = "Please select atlease one object that in a Cry Export node"
+        if(bpy.context.selected_objects is None):
+            self.errorReport = cryNodeReport
+        else:
+            self.exportNode = None
+            for _object in bpy.context.selected_objects:
+                if(self.errorReport is not None):
+                    break
+                # Find the export node the object is in, and report error if in multiple export nodes.
+                for collection in _object.users_collection:
+                    if utils.is_export_node(collection):
+                        # print object and export node name
+                        print("Selected Object: {}, Export Node: {}".format(_object.name, collection.name))
+                        if self.exportNode is None:
+                            self.exportNode = collection
+                        elif self.exportNode != collection:
+                            self.errorReport = "Objects are in multiple Cry Export nodes. Skip operation to avoid corruption."
+                            break
+            if self.exportNode is None:
+                self.errorReport = cryNodeReport
+            else:
+                if self.errorReport is None:
+                    return context.window_manager.invoke_props_dialog(self)                
+        self.report({'ERROR'}, self.errorReport)
+        return {'CANCELLED'}
 
 
 class BCRY_OT_generate_materials(bpy.types.Operator, ExportHelper):
     '''Generate material files for CryEngine.'''
-    bl_label = "Generate Maetrials"
+    bl_label = "Generate Materials"
     bl_idname = "bcry.generate_materials"
     filename_ext = ".mtl"
     filter_glob: StringProperty(default="*.mtl", options={'HIDDEN'})
@@ -2008,79 +2007,6 @@ class BCRY_OT_fix_wheel_transforms(bpy.types.Operator):
         ob.location.z = (ob.bound_box[4][0] + ob.bound_box[5][0]) / 2.0
 
         return {'FINISHED'}
-
-
-# ------------------------------------------------------------------------------
-# Material Physics:
-# ------------------------------------------------------------------------------
-
-class BCRY_OT_set_material_phys_default(bpy.types.Operator):
-    '''The render geometry is used as physics proxy. This\
-    is expensive for complex objects, so use this only for simple objects\
-    like cubes or if you really need to fully physicalize an object.'''
-    bl_label = "__physDefault"
-    bl_idname = "bcry.set_phys_default"
-
-    def execute(self, context):
-        material_name = bpy.context.active_object.active_material.name
-        message = "{} material physic has been set to physDefault".format(
-            material_name)
-        self.report({'INFO'}, message)
-        bcPrint(message)
-        return material_utils.set_material_physic(self, context, self.bl_label)
-
-
-class BCRY_OT_set_material_phys_proxy_no_draw(bpy.types.Operator):
-    '''Mesh is used exclusively for collision detection and is not rendered.'''
-    bl_label = "__physProxyNoDraw"
-    bl_idname = "bcry.set_phys_proxy_no_draw"
-
-    def execute(self, context):
-        material_name = bpy.context.active_object.active_material.name
-        message = "{} material physic has been set to physProxyNoDraw".format(
-            material_name)
-        bcPrint(message)
-        return material_utils.set_material_physic(self, context, self.bl_label)
-
-
-class BCRY_OT_set_material_phys_none(bpy.types.Operator):
-    '''The render geometry have no physic just render it.'''
-    bl_label = "__physNone"
-    bl_idname = "bcry.set_phys_none"
-
-    def execute(self, context):
-        material_name = bpy.context.active_object.active_material.name
-        message = "{} material physic has been set to physNone".format(
-            material_name)
-        bcPrint(message)
-        return material_utils.set_material_physic(self, context, self.bl_label)
-
-
-class BCRY_OT_set_material_phys_obstruct(bpy.types.Operator):
-    '''Used for Soft Cover to block AI view (i.e. on dense foliage).'''
-    bl_label = "__physObstruct"
-    bl_idname = "bcry.set_phys_obstruct"
-
-    def execute(self, context):
-        material_name = bpy.context.active_object.active_material.name
-        message = "{} material physic has been set to physObstruct".format(
-            material_name)
-        bcPrint(message)
-        return material_utils.set_material_physic(self, context, self.bl_label)
-
-
-class BCRY_OT_set_material_phys_no_collide(bpy.types.Operator):
-    '''Special purpose proxy which is used by the engine\
-    to detect player interaction (e.g. for vegetation touch bending).'''
-    bl_label = "__physNoCollide"
-    bl_idname = "bcry.set_phys_no_collide"
-
-    def execute(self, context):
-        material_name = bpy.context.active_object.active_material.name
-        message = "{} material physic has been set to physNoCollide".format(
-            material_name)
-        bcPrint(message)
-        return material_utils.set_material_physic(self, context, self.bl_label)
 
 
 # ------------------------------------------------------------------------------
@@ -4037,7 +3963,7 @@ class BRCY_PT_material_utilities_panel(View3DPanel, Panel):
 
         col.operator(
             BCRY_OT_add_material.bl_idname,
-            text="Add Material",
+            text="Add Material to Selected Objects",
             icon="VIEWZOOM")
         col.separator()
         col.operator(
@@ -4051,7 +3977,7 @@ class BRCY_PT_material_utilities_panel(View3DPanel, Panel):
         col.separator()
         col.operator(
             BCRY_OT_generate_materials.bl_idname,
-            text="Generate Materials",
+            text="Generate Node Materials",
             icon="GROUP_VCOL")
 
 
@@ -4101,7 +4027,7 @@ class BCRY_PT_configurations_panel(View3DPanel, Panel):
             text="Select Game Directory",
             icon="FILEBROWSER")
         col.separator()
-        col.menu(BCRY_MT_main_menu.bl_idname)
+        # col.menu(BCRY_MT_main_menu.bl_idname)
 
 
 class BCRY_PT_export_panel(View3DPanel, Panel):
@@ -4126,337 +4052,79 @@ class BCRY_PT_export_panel(View3DPanel, Panel):
             icon_value=bcry_icons["crye"].icon_id)
         col.separator()
 
+
 # ------------------------------------------------------------------------------
-# BCry Exporter Menu:
+# Add direct to existing menus:
 # ------------------------------------------------------------------------------
 
+# Material Physics: Add direct to native material menus
+class BCRY_OT_set_material_phys_default(bpy.types.Operator):
+    '''The render geometry is used as physics proxy. This\
+    is expensive for complex objects, so use this only for simple objects\
+    like cubes or if you really need to fully physicalize an object.'''
+    bl_label = "__physDefault"
+    bl_idname = "bcry.set_phys_default"
 
-class BCRY_MT_main_menu(bpy.types.Menu):
-    bl_label = 'BCRY 5 Exporter'
-    bl_idname = 'BCRY_MT_main_menu'
-
-    def draw(self, context):
-        layout = self.layout
-
-        # version number
-        layout.label(text='v{}'.format(VERSION))
-        if not Configuration.configured():
-            layout.label(text="No RC found.", icon='ERROR')
-        layout.separator()
-
-        # layout.operator("open_donate.wp", icon='FORCE_DRAG')
-        layout.operator(
-            BCRY_OT_add_cry_export_node.bl_idname,
-            text="Add Export Node",
-            icon="GROUP")
-        layout.operator(
-            BCRY_OT_add_cry_animation_node.bl_idname,
-            text="Add Animation Node",
-            icon="PREVIEW_RANGE")
-        layout.operator(
-            BCRY_OT_selected_to_cry_export_nodes.bl_idname,
-            text="Export Nodes from Objects",
-            icon="SCENE_DATA")
-        layout.separator()
-        layout.operator(
-            BCRY_OT_apply_transforms.bl_idname,
-            text="Apply All Transforms",
-            icon="MESH_DATA")
-        layout.operator(
-            BCRY_OT_feet_on_floor.bl_idname,
-            text="Feet On Floor", icon="ARMATURE_DATA")
-        layout.separator()
-
-        layout.menu(
-            BCRY_MT_add_physics_proxy_menu.bl_idname,
-            icon="NDOF_TURN")
-        layout.separator()
-        layout.menu(
-            BCRY_MT_cry_utilities_menu.bl_idname,
-            icon='OUTLINER_OB_EMPTY')
-        layout.separator()
-        layout.menu(
-            BCRY_MT_bone_utilities_menu.bl_idname,
-            icon='BONE_DATA')
-        layout.separator()
-        layout.menu(
-            BCRY_MT_mesh_utilities_menu.bl_idname,
-            icon='MESH_CUBE')
-        layout.separator()
-        layout.menu(
-            BCRY_MT_material_utilities_menu.bl_idname,
-            icon="MATERIAL")
-        layout.separator()
-        layout.menu(
-            BCRY_MT_custom_properties_menu.bl_idname,
-            icon='SCRIPT')
-        layout.separator()
-        layout.menu(
-            BCRY_MT_configurations_menu.bl_idname,
-            icon='NEWFOLDER')
-
-        layout.separator()
-        layout.separator()
-        layout.operator(
-            BCRY_OT_export.bl_idname,
-            icon_value=bcry_icons["crye"].icon_id)
-        layout.separator()
-        layout.operator(
-            BCRY_OT_export_animations.bl_idname,
-            icon="RENDER_ANIMATION")
+    def execute(self, context):
+        material_name = bpy.context.active_object.active_material.name
+        message = "{} material physic has been set to physDefault".format(material_name)
+        self.report({'INFO'}, message)
+        bcPrint(message)
+        return material_utils.set_material_physic(self, context, self.bl_label)
 
 
-class BCRY_MT_add_physics_proxy_menu(bpy.types.Menu):
-    bl_label = "Add Physics Proxy"
-    bl_idname = "BCRY_MT_add_physics_proxy"
+class BCRY_OT_set_material_phys_proxy_no_draw(bpy.types.Operator):
+    '''Mesh is used exclusively for collision detection and is not rendered.'''
+    bl_label = "__physProxyNoDraw"
+    bl_idname = "bcry.set_phys_proxy_no_draw"
 
-    def draw(self, context):
-        layout = self.layout
-
-        proxy_props = context.scene.proxy_props
-
-        # predefine variables for props
-        if proxy_props.bAdvanced:
-            bChild = proxy_props.bChild
-            bSeparate = proxy_props.bSeparate
-        else:
-            bChild = False
-            bSeparate = False
-
-        layout.label(text="Proxies")
-        add_box_proxy = layout.operator(
-            BCRY_OT_add_proxy.bl_idname,
-            text="Box",
-            icon="META_CUBE")
-        add_box_proxy.type_ = "box"
-        add_box_proxy.child_ = bChild
-
-        add_capsule_proxy = layout.operator(
-            BCRY_OT_add_proxy.bl_idname,
-            text="Capsule",
-            icon="META_ELLIPSOID")
-        add_capsule_proxy.type_ = "capsule"
-        add_capsule_proxy.child_ = bChild
-
-        add_cylinder_proxy = layout.operator(
-            BCRY_OT_add_proxy.bl_idname,
-            text="Cylinder",
-            icon="META_CAPSULE")
-        add_cylinder_proxy.type_ = "cylinder"
-        add_cylinder_proxy.child_ = bChild
-
-        add_sphere_proxy = layout.operator(
-            BCRY_OT_add_proxy.
-            bl_idname,
-            text="Sphere",
-            icon="META_BALL")
-        add_sphere_proxy.type_ = "sphere"
-        add_sphere_proxy.child_ = bChild
-
-        add_mesh_proxy = layout.operator(
-            BCRY_OT_add_mesh_proxy.bl_idname,
-            text="Mesh",
-            icon="MESH_CUBE")
-        add_mesh_proxy.child_ = bChild
-        add_mesh_proxy.separate_ = bSeparate
+    def execute(self, context):
+        material_name = bpy.context.active_object.active_material.name
+        message = "{} material physic has been set to physProxyNoDraw".format(material_name)
+        bcPrint(message)
+        return material_utils.set_material_physic(self, context, self.bl_label)
 
 
-class BCRY_MT_cry_utilities_menu(bpy.types.Menu):
-    bl_label = "Cry Utilities"
-    bl_idname = "BCRY_MT_cry_utilities"
+class BCRY_OT_set_material_phys_none(bpy.types.Operator):
+    '''The render geometry have no physic just render it.'''
+    bl_label = "__physNone"
+    bl_idname = "bcry.set_phys_none"
 
-    def draw(self, context):
-        layout = self.layout
-
-        layout.label(text="Breakables")
-        layout.operator(
-            BCRY_OT_add_breakable_joint.bl_idname,
-            text="Add Joint",
-            icon="PARTICLES")
-        layout.separator()
-
-        layout.label(text="Touch Bending")
-        layout.operator(
-            BCRY_OT_add_branch.bl_idname,
-            text="Add Branch",
-            icon='MOD_SIMPLEDEFORM')
-        layout.operator(
-            BCRY_OT_add_branch_joint.bl_idname,
-            text="Add Branch Joint",
-            icon='MOD_SIMPLEDEFORM')
+    def execute(self, context):
+        material_name = bpy.context.active_object.active_material.name
+        message = "{} material physic has been set to physNone".format(material_name)
+        bcPrint(message)
+        return material_utils.set_material_physic(self, context, self.bl_label)
 
 
-class BCRY_MT_bone_utilities_menu(bpy.types.Menu):
-    bl_label = "Bone Utilities"
-    bl_idname = "BCRY_MT_bone_utilities"
+class BCRY_OT_set_material_phys_obstruct(bpy.types.Operator):
+    '''Used for Soft Cover to block AI view (i.e. on dense foliage).'''
+    bl_label = "__physObstruct"
+    bl_idname = "bcry.set_phys_obstruct"
 
-    def draw(self, context):
-        layout = self.layout
-
-        layout.label(text="Skeleton")
-        layout.operator(
-            BCRY_OT_add_root_bone.bl_idname,
-            text="Add Root Bone",
-            icon="BONE_DATA")
-        layout.operator(
-            BCRY_OT_add_primitive_mesh.bl_idname,
-            text="Add Primitive Mesh",
-            icon="BONE_DATA")
-        layout.operator(
-            BCRY_OT_add_locator_locomotion.bl_idname,
-            text="Add Locator Locomotion",
-            icon="BONE_DATA")
-        layout.separator()
-
-        layout.label(text="Bone")
-        layout.operator(
-            BCRY_OT_edit_inverse_kinematics.bl_idname,
-            text="Set Bone Physic and IKs",
-            icon="OUTLINER_DATA_ARMATURE")
-        layout.operator(
-            BCRY_OT_apply_animation_scale.bl_idname,
-            text="Apply Animation Scaling",
-            icon='OUTLINER_DATA_ARMATURE')
-        layout.separator()
-
-        layout.label(text="Physics")
-        layout.operator(
-            BCRY_OT_physicalize_skeleton.bl_idname,
-            text="Physicalize Skeleton",
-            icon='PHYSICS')
-        layout.operator(
-            BCRY_OT_clear_skeleton_physics.bl_idname,
-            text="Clear Skeleton Physics",
-            icon='PHYSICS')
+    def execute(self, context):
+        material_name = bpy.context.active_object.active_material.name
+        message = "{} material physic has been set to physObstruct".format(material_name)
+        bcPrint(message)
+        return material_utils.set_material_physic(self, context, self.bl_label)
 
 
-class BCRY_MT_mesh_utilities_menu(bpy.types.Menu):
-    bl_label = "Mesh Utilities"
-    bl_idname = "BCRY_MT_mesh_utilities"
+class BCRY_OT_set_material_phys_no_collide(bpy.types.Operator):
+    '''Special purpose proxy which is used by the engine\
+    to detect player interaction (e.g. for vegetation touch bending).'''
+    bl_label = "__physNoCollide"
+    bl_idname = "bcry.set_phys_no_collide"
 
-    def draw(self, context):
-        layout = self.layout
-
-        layout.label(text="LODs")
-        layout.operator(
-            BCRY_OT_generate_lods.bl_idname,
-            text="Generate LODs",
-            icon="MOD_EXPLODE")
-        layout.separator()
-
-        layout.label(text="Weight Repair")
-        layout.operator(
-            BCRY_OT_find_weightless.bl_idname,
-            text="Find Weightless",
-            icon="WPAINT_HLT")
-        layout.operator(
-            BCRY_OT_remove_all_weight.bl_idname,
-            text="Remove Weight",
-            icon="WPAINT_HLT")
-        layout.separator()
-
-        layout.label(text="Mesh Repair")
-        layout.operator(
-            BCRY_OT_find_degenerate_faces.bl_idname,
-            text="Find Degenerate",
-            icon='ZOOM_ALL')
-        layout.operator(
-            BCRY_OT_find_multiface_lines.bl_idname,
-            text="Find Multi-face",
-            icon='ZOOM_ALL')
-        layout.separator()
-
-        layout.label(text="UV Repair")
-        layout.operator(
-            BCRY_OT_find_no_uvs.bl_idname,
-            text="Find All Objects with No UV's",
-            icon="UV_FACESEL")
-        layout.operator(
-            BCRY_OT_add_uv_texture.bl_idname,
-            text="Add UV's to Objects",
-            icon="UV_FACESEL")
-
-
-class BCRY_MT_material_utilities_menu(bpy.types.Menu):
-    bl_label = "Material Utilities"
-    bl_idname = "BCRY_MT_material_utilities"
-
-    def draw(self, context):
-        layout = self.layout
-
-        layout.operator(
-            BCRY_OT_add_material.bl_idname,
-            text="Add Material",
-            icon="VIEW_ZOOM")
-        layout.separator()
-        layout.operator(
-            BCRY_OT_add_material_properties.bl_idname,
-            text="Add Material Properties",
-            icon="GREASEPENCIL")
-        layout.operator(
-            BCRY_OT_discard_material_properties.bl_idname,
-            text="Discard Material Properties",
-            icon="BRUSH_DATA")
-        layout.separator()
-        layout.operator(
-            BCRY_OT_generate_materials.bl_idname,
-            text="Generate Materials",
-            icon="GROUP_VCOL")
-
-
-class BCRY_MT_custom_properties_menu(bpy.types.Menu):
-    bl_label = "User Defined Properties"
-    bl_idname = "BCRY_MT_udp"
-
-    def draw(self, context):
-        layout = self.layout
-
-        layout.operator(
-            BCRY_OT_edit_render_mesh.bl_idname,
-            text="Edit Render Mesh",
-            icon="FORCE_LENNARDJONES")
-        layout.separator()
-        layout.operator(
-            BCRY_OT_edit_physic_proxy.bl_idname,
-            text="Edit Physics Proxy",
-            icon="META_CUBE")
-        layout.separator()
-        layout.operator(
-            BCRY_OT_edit_joint_node.bl_idname,
-            text="Edit Joint Node",
-            icon="MOD_SCREW")
-        layout.separator()
-        layout.operator(
-            BCRY_OT_edit_deformable.bl_idname,
-            text="Edit Deformable",
-            icon="MOD_SIMPLEDEFORM")
-
-
-class BCRY_MT_configurations_menu(bpy.types.Menu):
-    bl_label = "Configurations"
-    bl_idname = "BCRY_MT_configurations"
-
-    def draw(self, context):
-        layout = self.layout
-
-        layout.label(text="Configure")
-        layout.operator(
-            BCRY_OT_find_rc.bl_idname,
-            text="Find RC",
-            icon="WORKSPACE")
-        layout.operator(
-            BCRY_OT_find_rc_for_texture_conversion.bl_idname,
-            text="Find Texture RC",
-            icon="WORKSPACE")
-        layout.separator()
-        layout.operator(
-            BCRY_OT_select_game_directory.bl_idname,
-            text="Select Game Directory",
-            icon="FILE_FOLDER")
+    def execute(self, context):
+        material_name = bpy.context.active_object.active_material.name
+        message = "{} material physic has been set to physNoCollide".format(
+            material_name)
+        bcPrint(message)
+        return material_utils.set_material_physic(self, context, self.bl_label)
 
 
 class BCRY_MT_set_material_physics_menu(bpy.types.Menu):
-    bl_label = "Set Material Physics"
+    bl_label = "Set Physical Material"
     bl_idname = "BCRY_MT_set_material_physics"
 
     def draw(self, context):
@@ -4485,7 +4153,7 @@ class BCRY_MT_set_material_physics_menu(bpy.types.Menu):
             text="physNoCollide",
             icon='PHYSICS')
 
-
+# Will add direct to native vertex group menu
 class BCRY_OT_remove_unused_vertex_groups(bpy.types.Operator):
     bl_label = "Remove Unused Vertex Groups"
     bl_idname = "bcry.remove_unused_vertex_groups"
@@ -4618,15 +4286,6 @@ def get_classes_to_register():
         BCRY_PT_user_defined_properties_panel,
         BCRY_PT_configurations_panel,
         BCRY_PT_export_panel,
-
-        BCRY_MT_main_menu,
-        BCRY_MT_add_physics_proxy_menu,
-        BCRY_MT_bone_utilities_menu,
-        BCRY_MT_cry_utilities_menu,
-        BCRY_MT_mesh_utilities_menu,
-        BCRY_MT_material_utilities_menu,
-        BCRY_MT_custom_properties_menu,
-        BCRY_MT_configurations_menu,
 
         BCRY_MT_set_material_physics_menu,
         BCRY_OT_remove_unused_vertex_groups,
