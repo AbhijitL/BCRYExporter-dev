@@ -2236,8 +2236,8 @@ class BCRY_OT_add_root_bone(bpy.types.Operator):
         if not armature or armature.type != 'ARMATURE':
             self.report({'ERROR'}, "Please select a armature object!")
             return {'CANCELLED'}
-        elif armature.pose.bones.find(self.root_bone) != -1:
-            message = "{} armature already has a Root ({}) bone!".format(armature.name, self.root_bone)
+        elif armature.pose.bones.find(self.root_name) != -1:
+            message = "{} armature already has a Root ({}) bone!".format(armature.name, self.root_name)
             self.report({'INFO'}, message)
             return {'CANCELLED'}
 
